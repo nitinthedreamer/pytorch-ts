@@ -7,6 +7,7 @@ from gluonts.core.component import validated
 
 from pts.model import weighted_average
 from pts.modules import RealNVP, MAF, FlowOutput, MeanScaler, NOPScaler
+from pts.modules import MixLogisticAttnCoupling
 
 
 class TempFlowTrainingNetwork(nn.Module):

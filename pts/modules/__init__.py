@@ -18,5 +18,6 @@ from .distribution_output import (
 )
 from .feature import FeatureEmbedder, FeatureAssembler
 from .flows import RealNVP, MAF
+from .flow_pp import MixLogisticAttnCoupling
 from .scaler import MeanScaler, NOPScaler
 from .gaussian_diffusion import GaussianDiffusion

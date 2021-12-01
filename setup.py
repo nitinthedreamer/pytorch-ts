@@ -24,6 +24,8 @@ setup(
         "tqdm",
         "matplotlib",
         "tensorboard",
+        "tensorflow",
+        "tensorflow_probability"
     ],
     test_suite="tests",
     tests_require=["flake8", "pytest"],
