@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 
+from pprint import pprint
 
 def create_masks(
     input_size, hidden_size, n_hidden, input_order="sequential", input_degrees=None
@@ -56,6 +57,7 @@ class FlowSequential(nn.Sequential):
     def forward(self, x, y):
         sum_log_abs_det_jacobians = 0
         for module in self:
+            print("module: {}".format(module))
             x, log_abs_det_jacobian = module(x, y)
             sum_log_abs_det_jacobians += log_abs_det_jacobian
         return x, sum_log_abs_det_jacobians
@@ -133,7 +135,7 @@ class LinearMaskedCoupling(nn.Module):
 
     def __init__(self, input_size, hidden_size, n_hidden, mask, cond_label_size=None):
         super().__init__()
-
+        print("input size: {}, hidden size: {}".format(input_size, hidden_size))
         self.register_buffer("mask", mask)
 
         # scale function
@@ -158,12 +160,13 @@ class LinearMaskedCoupling(nn.Module):
     def forward(self, x, y=None):
         # apply mask
         mx = x * self.mask
-
+        print("x shape: {}, y shape: {}".format( x.shape, y.shape))
         # run through model
         s = self.s_net(mx if y is None else torch.cat([y, mx], dim=-1))
         t = self.t_net(mx if y is None else torch.cat([y, mx], dim=-1)) * (
             1 - self.mask
         )
+        print("s_net: {}".format(self.s_net))
 
         # cf RealNVP eq 8 where u corresponds to x (here we're modeling u)
         log_s = torch.tanh(s) * (1 - self.mask)
@@ -337,6 +340,7 @@ class Flow(nn.Module):
         return x, log_abs_det_jacobian
 
     def log_prob(self, x, cond):
+        # print("cond: {}".format(cond))
         u, sum_log_abs_det_jacobians = self.forward(x, cond)
         return torch.sum(self.base_dist.log_prob(u) + sum_log_abs_det_jacobians, dim=-1)
 

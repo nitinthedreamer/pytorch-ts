@@ -33,6 +33,10 @@ class TempFlowTrainingNetwork(nn.Module):
         cardinality: List[int] = [1],
         embedding_dimension: int = 1,
         scaling: bool = True,
+        filters: int = 16,
+        blocks: int = 2,
+        components: int = 4,
+        heads: int = 2,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -41,6 +45,10 @@ class TempFlowTrainingNetwork(nn.Module):
         self.context_length = context_length
         self.history_length = history_length
         self.scaling = scaling
+
+        print("hidden_size: ", hidden_size)
+        print("n_hidden: ", n_hidden)
+        print("conditioning_length: ", conditioning_length)
 
         assert len(set(lags_seq)) == len(lags_seq), "no duplicated lags allowed!"
         lags_seq.sort()
@@ -57,15 +65,20 @@ class TempFlowTrainingNetwork(nn.Module):
         )
 
         flow_cls = {
+            "FlowPP": MixLogisticAttnCoupling,
             "RealNVP": RealNVP,
             "MAF": MAF,
         }[flow_type]
         self.flow = flow_cls(
-            input_size=target_dim,
-            n_blocks=n_blocks,
-            n_hidden=n_hidden,
-            hidden_size=hidden_size,
-            cond_label_size=conditioning_length,
+            # input_size=target_dim,
+            # n_blocks=n_blocks,
+            # n_hidden=n_hidden,
+            # hidden_size=hidden_size,
+            # cond_label_size=conditioning_length,
+            filters = filters,
+            blocks = blocks,
+            components = components,
+            heads = heads,
         )
         self.dequantize = dequantize
 
@@ -387,9 +400,13 @@ class TempFlowTrainingNetwork(nn.Module):
 
         # assert_shape(target, (-1, seq_len, self.target_dim))
 
+        print("target shape: {}".format(target.shape))
+
         distr_args = self.distr_args(rnn_outputs=rnn_outputs)
         if self.scaling:
             self.flow.scale = scale
+
+        print("distr_args shape: {}".format(distr_args.shape))
 
         # we sum the last axis to have the same shape for all likelihoods
         # (batch_size, subseq_length, 1)

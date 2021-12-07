@@ -54,7 +54,7 @@ class TempFlowEstimator(PyTorchEstimator):
         dropout_rate: float = 0.1,
         cardinality: List[int] = [1],
         embedding_dimension: int = 5,
-        flow_type="RealNVP",
+        flow_type="FlowPP",
         n_blocks=3,
         hidden_size=100,
         n_hidden=2,
@@ -64,6 +64,10 @@ class TempFlowEstimator(PyTorchEstimator):
         pick_incomplete: bool = False,
         lags_seq: Optional[List[int]] = None,
         time_features: Optional[List[TimeFeature]] = None,
+        filters: int = 16,
+        blocks: int = 2,
+        components: int = 4,
+        heads: int = 2,
         **kwargs,
     ) -> None:
         super().__init__(trainer=trainer, **kwargs)
@@ -72,6 +76,12 @@ class TempFlowEstimator(PyTorchEstimator):
         self.context_length = (
             context_length if context_length is not None else prediction_length
         )
+
+        # flow pp required variables
+        self.filters = filters
+        self.blocks = blocks
+        self.components = components
+        self.heads = heads
 
         self.input_size = input_size
         self.prediction_length = prediction_length
@@ -206,6 +216,10 @@ class TempFlowEstimator(PyTorchEstimator):
             n_hidden=self.n_hidden,
             conditioning_length=self.conditioning_length,
             dequantize=self.dequantize,
+            filters = self.filters,
+            blocks = self.blocks,
+            components = self.components,
+            heads = self.heads
         ).to(device)
 
     def create_predictor(

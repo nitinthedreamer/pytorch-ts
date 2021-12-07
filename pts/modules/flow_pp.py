@@ -5,6 +5,11 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from tqdm import tqdm
 
+import torch
+
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 from pts.modules.logistic import mixlogistic_logpdf, mixlogistic_logcdf, mixlogistic_invcdf
 
 VarConfig = namedtuple('VarConfig', ['init', 'ema', 'dtype', 'use_resource'])
@@ -15,7 +20,7 @@ def get_var(var_name, *, shape, initializer, vcfg: VarConfig, trainable=True):
     assert vcfg is not None and isinstance(vcfg, VarConfig)
     if isinstance(initializer, np.ndarray):
         initializer = initializer.astype(vcfg.dtype.as_numpy_dtype)
-    v = tf.get_variable(var_name, shape=shape, dtype=vcfg.dtype, initializer=initializer, trainable=trainable,
+    v = tf.compat.v1.get_variable(var_name, shape=shape, dtype=vcfg.dtype, initializer=initializer, trainable=trainable,
                         use_resource=vcfg.use_resource)
     if vcfg.ema is not None:
         assert isinstance(vcfg.ema, tf.train.ExponentialMovingAverage)
@@ -24,7 +29,7 @@ def get_var(var_name, *, shape, initializer, vcfg: VarConfig, trainable=True):
 
 
 def dense(x, *, name, num_units, init_scale=1., vcfg: VarConfig):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         _, in_dim = x.shape
         W = get_var('W', shape=[in_dim, num_units], initializer=tf.random_normal_initializer(0, 0.05), vcfg=vcfg)
         b = get_var('b', shape=[num_units], initializer=tf.constant_initializer(0.), vcfg=vcfg)
@@ -32,7 +37,7 @@ def dense(x, *, name, num_units, init_scale=1., vcfg: VarConfig):
         if vcfg.init:
             y = tf.matmul(x, W)
             m_init, v_init = tf.nn.moments(y, [0])
-            scale_init = init_scale * tf.rsqrt(v_init + 1e-8)
+            scale_init = init_scale * tf.compat.v1.rsqrt(v_init + 1e-8)
             new_W = W * scale_init[None, :]
             new_b = -m_init * scale_init
             with tf.control_dependencies([W.assign(new_W), b.assign(new_b)]):
@@ -45,7 +50,7 @@ def dense(x, *, name, num_units, init_scale=1., vcfg: VarConfig):
 
 
 def conv2d(x, *, name, num_units, filter_size=(3, 3), stride=(1, 1), pad='SAME', init_scale=1., vcfg: VarConfig):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         assert x.shape.ndims == 4
         W = get_var('W', shape=[*filter_size, int(x.shape[-1]), num_units],
                     initializer=tf.random_normal_initializer(0, 0.05), vcfg=vcfg)
@@ -54,7 +59,7 @@ def conv2d(x, *, name, num_units, filter_size=(3, 3), stride=(1, 1), pad='SAME',
         if vcfg.init:
             y = tf.nn.conv2d(x, W, [1, *stride, 1], pad)
             m_init, v_init = tf.nn.moments(y, [0, 1, 2])
-            scale_init = init_scale * tf.rsqrt(v_init + 1e-8)
+            scale_init = init_scale * tf.compat.v1.rsqrt(v_init + 1e-8)
             new_W = W * scale_init[None, None, None, :]
             new_b = -m_init * scale_init
             with tf.control_dependencies([W.assign(new_W), b.assign(new_b)]):
@@ -67,13 +72,13 @@ def conv2d(x, *, name, num_units, filter_size=(3, 3), stride=(1, 1), pad='SAME',
 
 
 def init_normalization(x, *, name, init_scale=1., vcfg: VarConfig):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         g = get_var('g', shape=x.shape[1:], initializer=tf.constant_initializer(1.), vcfg=vcfg)
         b = get_var('b', shape=x.shape[1:], initializer=tf.constant_initializer(0.), vcfg=vcfg)
         if vcfg.init:
             # data based normalization
             m_init, v_init = tf.nn.moments(x, [0])
-            scale_init = init_scale * tf.rsqrt(v_init + 1e-8)
+            scale_init = init_scale * tf.compat.v1.rsqrt(v_init + 1e-8)
             assert m_init.shape == v_init.shape == scale_init.shape == g.shape == b.shape
             with tf.control_dependencies([
                 g.assign(scale_init),
@@ -103,17 +108,17 @@ def gate(x, *, axis):
 
 def layernorm(x, *, name, vcfg: VarConfig, e=1e-5):
     """Layer norm over last axis"""
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         shape = [1] * (x.shape.ndims - 1) + [int(x.shape[-1])]
         g = get_var('g', shape=shape, initializer=tf.constant_initializer(1), vcfg=vcfg)
         b = get_var('b', shape=shape, initializer=tf.constant_initializer(0), vcfg=vcfg)
         u = tf.reduce_mean(x, axis=-1, keepdims=True)
-        s = tf.reduce_mean(tf.squared_difference(x, u), axis=-1, keepdims=True)
-        return (x - u) * tf.rsqrt(s + e) * g + b
+        s = tf.reduce_mean(tf.compat.v1.squared_difference(x, u), axis=-1, keepdims=True)
+        return (x - u) * tf.compat.v1.rsqrt(s + e) * g + b
 
 
 def gated_conv(x, *, name, a, nonlinearity=concat_elu, conv=conv2d, use_nin, dropout_p, vcfg: VarConfig):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         num_filters = int(x.shape[-1])
 
         c1 = conv(nonlinearity(x), name='c1', num_units=num_filters, vcfg=vcfg)
@@ -128,7 +133,7 @@ def gated_conv(x, *, name, a, nonlinearity=concat_elu, conv=conv2d, use_nin, dro
 
 
 def gated_attn(x, *, name, pos_emb, heads, dropout_p, vcfg: VarConfig):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         bs, height, width, ch = x.shape.as_list()
         assert pos_emb.shape == [height, width, ch]
         assert ch % heads == 0
@@ -485,12 +490,14 @@ class MixLogisticAttnCoupling(Flow):
                     x, [tf.shape(x), xmean, tf.sqrt(xvar), tf.reduce_min(x), tf.reduce_max(x)],
                     message='{} (shape/mean/std/min/max) '.format(self.template.variable_scope.name), summarize=10
                 )
+            print(x)
+            print(x.shape)
             B, H, W, C = x.shape.as_list()
             pos_emb = get_var('pos_emb', shape=[H, W, filters], initializer=tf.random_normal_initializer(stddev=0.01),
                               vcfg=vcfg)
             x = conv2d(x, name='proj_in', num_units=filters, vcfg=vcfg)
             for i_block in range(blocks):
-                with tf.variable_scope('block{}'.format(i_block)):
+                with tf.compat.v1.variable_scope('block{}'.format(i_block)):
                     x = gated_conv(x, name='conv', a=context, use_nin=True, dropout_p=dropout_p, vcfg=vcfg)
                     x = layernorm(x, name='ln1', vcfg=vcfg)
                     x = gated_attn(x, name='attn', pos_emb=pos_emb, heads=heads, dropout_p=dropout_p, vcfg=vcfg)
@@ -510,15 +517,20 @@ class MixLogisticAttnCoupling(Flow):
                 ElemwiseAffine(scales=tf.exp(s), logscales=s, biases=t),
             ])
 
-        self.template = tf.make_template(self.__class__.__name__, f)
+        self.template = tf.compat.v1.make_template(self.__class__.__name__, f)
 
     def forward(self, x, **kwargs):
-        assert isinstance(x, tuple)
-        cf, ef = x
-        flow = self.template(cf, **kwargs)
-        out, logd = flow.forward(ef)
-        assert out.shape == ef.shape == cf.shape
-        return (cf, out), logd
+        # assert isinstance(x, tuple)
+        # cf, ef = x
+        # flow = self.template(cf, **kwargs)
+
+        # out, logd = flow.forward(ef)
+        # assert out.shape == ef.shape == cf.shape
+        # return (cf, out), logd
+
+        flow = self.template(x, **kwargs)
+        out, logd = flow.forward(x)
+        return out, logd
 
     def inverse(self, y, **kwargs):
         assert isinstance(y, tuple)
@@ -528,7 +540,20 @@ class MixLogisticAttnCoupling(Flow):
         assert out.shape == ef.shape == cf.shape
         return (cf, out), logd
 
+    # TODO: Pass drop out parameters if required through flow_kwargs
+    def log_prob(self, x, cond=None, **flow_kwargs):
+        # print("x: {}, cond: {}".format(x,cond))
+        flow_kwargs = dict(vcfg=VarConfig(init=True, ema=None, dtype=tf.float32), dropout_p=0, verbose=False)
+        x_cond = x if cond is None else torch.cat([x, cond] , dim=-1)
+        x_cond = tf.convert_to_tensor(np.expand_dims(x_cond.detach().numpy(), axis=-1))
+        y, main_logd = self.forward(x_cond, **flow_kwargs)
+        logp = sumflat(tf.distributions.Normal(0., 1.).log_prob(y))
+        # TODO: Do we need to consider dequant loss here?
+        total_logp =  main_logd + logp
 
+        # u, log_abs_det_jacobian = self.forward(x, y)
+        # return torch.sum(self.base_dist.log_prob(u) + log_abs_det_jacobian, dim=-1)
+        return total_logp
 ############################
 
 
@@ -579,7 +604,7 @@ def _run_flow_test(flow: Flow, *, input_bounds=(-5., 5.), input_shape=(5, 8, 8, 
     assert len(input_bounds) == 2 and len(input_shape) == 4
 
     with tf.Graph().as_default() as graph:
-        with tf.variable_scope('test_scope') as scope:
+        with tf.compat.v1.variable_scope('test_scope') as scope:
             x_in_sym = tf.placeholder(dtype, input_shape)
             init_syms = flow.forward(x_in_sym, vcfg=VarConfig(init=True, ema=None, dtype=dtype))
             y_sym, logd_sym = flow.forward(x_in_sym, vcfg=VarConfig(init=False, ema=None, dtype=dtype))
