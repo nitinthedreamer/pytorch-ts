@@ -8,7 +8,8 @@ from gluonts.core.component import validated
 from pts.model import weighted_average
 from pts.modules import RealNVP, MAF, FlowOutput, MeanScaler, NOPScaler
 from pts.modules import MixLogisticAttnCoupling
-
+from pts.flowplusplus import FlowPlusPlus
+from pts.flowplusplus.util import NLLLoss
 
 class TempFlowTrainingNetwork(nn.Module):
     @validated()
@@ -65,7 +66,7 @@ class TempFlowTrainingNetwork(nn.Module):
         )
 
         flow_cls = {
-            "FlowPP": MixLogisticAttnCoupling,
+            "FlowPlusPlus": FlowPlusPlus,
             "RealNVP": RealNVP,
             "MAF": MAF,
         }[flow_type]
@@ -75,12 +76,17 @@ class TempFlowTrainingNetwork(nn.Module):
             # n_hidden=n_hidden,
             # hidden_size=hidden_size,
             # cond_label_size=conditioning_length,
-            filters = filters,
-            blocks = blocks,
-            components = components,
-            heads = heads,
+
+            in_shape = (64, 48, 570)
+
+            # filters = filters,
+            # blocks = blocks,
+            # components = components,
+            # heads = heads,
         )
         self.dequantize = dequantize
+
+
 
         self.distr_output = FlowOutput(
             self.flow, input_size=target_dim, cond_size=conditioning_length
@@ -400,19 +406,28 @@ class TempFlowTrainingNetwork(nn.Module):
 
         # assert_shape(target, (-1, seq_len, self.target_dim))
 
-        print("target shape: {}".format(target.shape))
+        # print("target shape: {}".format(target.shape))
 
         distr_args = self.distr_args(rnn_outputs=rnn_outputs)
         if self.scaling:
             self.flow.scale = scale
 
-        print("distr_args shape: {}".format(distr_args.shape))
+        # print("distr_args shape: {}".format(distr_args.shape))
 
         # we sum the last axis to have the same shape for all likelihoods
         # (batch_size, subseq_length, 1)
-        if self.dequantize:
-            target += torch.rand_like(target)
-        likelihoods = -self.flow.log_prob(target, distr_args).unsqueeze(-1)
+
+        #Since dequantization is performed by default
+        # if self.dequantize:
+        #     target += torch.rand_like(target)
+
+        target_distr_args = torch.cat([target, distr_args], dim=-1)
+        # Extending it to keep channels
+        target_distr_args = torch.unsqueeze(target_distr_args, dim=1)
+        print(target_distr_args.shape)
+        z, sldj = self.flow(target_distr_args, reverse=False)
+        log_prob = NLLLoss().log_prob(z, sldj)
+        likelihoods = -log_prob.unsqueeze(-1)
 
         # assert_shape(likelihoods, (-1, seq_len, 1))
 
